@@ -9,6 +9,8 @@ android {
     namespace = "com.example.drishti"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
+    buildToolsVersion = "34.0.0"
+
 
     defaultConfig {
         applicationId = "com.example.drishti"
@@ -34,6 +36,11 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
+
+             proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+                )
         }
     }
 }

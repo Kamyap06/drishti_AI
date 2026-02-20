@@ -11,8 +11,10 @@ class VoiceService with ChangeNotifier {
   bool _isPaused = false;
   bool _continuousMode = false;
   
+  // Stored config for auto-restart
   String _currentLanguageCode = 'en';
   Function(String)? _onResultCallback;
+  bool _isSpeaking = false; // VoiceGuard State
   Timer? _watchdogTimer;
 
   // Initialize STT
@@ -94,6 +96,12 @@ class VoiceService with ChangeNotifier {
     try {
       await _speechToText.listen(
         onResult: (SpeechRecognitionResult result) {
+          // LOGICAL GATING: Ignore if speaking (Soft Mute)
+          if (_isSpeaking) {
+             print("STT: Ignored result (Speaking): ${result.recognizedWords}");
+             return;
+          }
+
           if (result.finalResult) {
             print('STT: Final: ${result.recognizedWords}');
             _onResultCallback?.call(result.recognizedWords);
@@ -104,10 +112,10 @@ class VoiceService with ChangeNotifier {
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 5),
         cancelOnError: false,
-        partialResults: true,
+        partialResults: false,
         listenOptions: SpeechListenOptions(
           cancelOnError: false,
-          partialResults: true,
+          partialResults: false,
           listenMode: ListenMode.dictation,
         ),
       );
@@ -147,4 +155,36 @@ class VoiceService with ChangeNotifier {
   }
   
   bool get isListening => _isListening;
+  bool get isSpeaking => _isSpeaking;
+
+  /// VOICE GUARD: Prevents self-listening during TTS
+  /// 1. Set _isSpeaking = true (Soft Mute).
+  /// 2. Speak.
+  /// 3. Wait (Debounce).
+  /// 4. Set _isSpeaking = false (Unmute).
+  /// Does NOT stop listening, ensuring zero latency.
+  Future<void> speakWithGuard(dynamic ttsService, String text, String languageCode) async {
+      print("VoiceGuard: Speaking '$text' (Soft Mute)");
+      
+      // Soft Mute: DO NOT STOP LISTENING
+      _isSpeaking = true;
+      notifyListeners(); 
+      
+      // Speak
+      await ttsService.speak(text, languageCode: languageCode);
+      
+      // Debounce to let echo die down
+      await Future.delayed(const Duration(milliseconds: 1200));
+      
+      print("VoiceGuard: Unmuting...");
+      _isSpeaking = false;
+      notifyListeners();
+  }
+
+  /// Manually set speaking state for external TTS usage (e.g. sequential prompt)
+  void setSpeaking(bool speaking) {
+    _isSpeaking = speaking;
+    notifyListeners();
+  }
+
 }

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants.dart';
+import '../../core/voice_utils.dart'; // Unified Intents
 import '../../services/language_service.dart';
 import '../../services/tts_service.dart';
 import '../../services/voice_service.dart';
@@ -28,6 +29,10 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
 
   Future<void> _speakPrompt() async {
     final tts = Provider.of<TtsService>(context, listen: false);
+    final voice = Provider.of<VoiceService>(context, listen: false);
+    
+    // LOGICAL GATING: Mic stays active but ignores input
+    voice.setSpeaking(true);
     
     // Speak sequentially with correct voice for each language
     await tts.speakSequentially([
@@ -36,27 +41,46 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
       {'text': "दृष्टीमध्ये आपले स्वागत आहे. कृपया आपली भाषा निवडा. इंग्रजी, हिंदी, किंवा मराठी।", 'lang': 'mr'},
     ]);
     
-    if (!mounted) return;
-    _startListening();
+    // UNMUTE
+    // Use delay to prevent catching own echo if TTS finishes abruptly
+    await Future.delayed(const Duration(milliseconds: 1000));
+    voice.setSpeaking(false);
+    
+    // Start Listening if not already (safeguard)
+    if (mounted) {
+       _startListening();
+    }
   }
 
   void _startListening() {
     final voice = Provider.of<VoiceService>(context, listen: false);
-    final tts = Provider.of<TtsService>(context, listen: false);
-
+    
+    // Single continuous session
     voice.startListening(
-      languageCode: 'en', // Listen in English initially for lang selection
+      languageCode: 'en-IN', // Start with English locale, can detect mixed usually
+      continuous: true,
       onResult: (text) {
-        String t = text.toLowerCase();
-        if (t.contains("english") || t.contains("angrezi")) {
-          _selectLanguage(AppConstants.langEn);
-        } else if (t.contains("hindi") || t.contains("hindi") || t.contains("हिन्दी")) {
-          _selectLanguage(AppConstants.langHi);
-        } else if (t.contains("marathi") || t.contains("marathi") || t.contains("मराठी")) {
-          _selectLanguage(AppConstants.langMr);
-        }
-      },
+          if (!mounted) return;
+          _handleVoiceInput(text);
+      }
     );
+  }
+
+  void _handleVoiceInput(String text) {
+    final voice = Provider.of<VoiceService>(context, listen:false);
+    if (voice.isSpeaking) return;
+
+     print("LANG DETECT RAW: $text");
+     final intent = VoiceUtils.getIntent(text);
+     print("LANG INTENT: $intent");
+
+     if (intent == VoiceIntent.languageEnglish) {
+       _selectLanguage(AppConstants.langEn);
+     } else if (intent == VoiceIntent.languageHindi) {
+       _selectLanguage(AppConstants.langHi); 
+     } else if (intent == VoiceIntent.languageMarathi) {
+       _selectLanguage(AppConstants.langMr);
+     }
   }
 
   Future<void> _selectLanguage(String langCode) async {
@@ -74,6 +98,11 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     await tts.speak(confirmation, languageCode: langCode);
     
     if (!mounted) return;
+    // Clean Stop before changing screens/routes?
+    // User requested "without VoiceService watchdogs or auto-restart triggers during route transitions"
+    // So we invoke stopListening().
+    await voice.stopListening(); 
+
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 

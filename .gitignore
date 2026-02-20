@@ -53,3 +53,7 @@ android/.gradle/
 # Ignore ALL build folders anywhere
 **/build/
 
+# Logs
+*.txt
+
+

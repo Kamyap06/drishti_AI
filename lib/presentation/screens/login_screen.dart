@@ -6,6 +6,7 @@ import '../../services/voice_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart';
 import '../widgets/mic_widget.dart';
+import '../../core/voice_utils.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -41,14 +42,25 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkInitialState() async {
-     final auth = Provider.of<AuthService>(context, listen: false);
-     bool hasUsers = await auth.hasUsers();
-     if (!hasUsers) {
-       _mode = AuthMode.register; 
-     }
-     _speakPromptForStep();
-     _startPersistentListening();
+  final auth = Provider.of<AuthService>(context, listen: false);
+
+  bool hasUsers = false;
+
+  try {
+    hasUsers = await auth.hasUsers();
+  } catch (_) {}
+
+  if (!mounted) return;
+
+  if (!hasUsers) {
+    await Navigator.pushNamed(context, '/registration');
+    return;
   }
+
+  _speakPromptForStep();
+  _startPersistentListening();
+}
+
 
   void _startPersistentListening() {
     final voice = Provider.of<VoiceService>(context, listen: false);
@@ -72,19 +84,11 @@ class _LoginScreenState extends State<LoginScreen> {
     final tts = Provider.of<TtsService>(context, listen: false);
     final voice = Provider.of<VoiceService>(context, listen: false);
 
-    // 1. Pause listening to prevent self-hearing
-    await voice.pause();
-
-    // 2. Speak
-    await tts.speak(message, languageCode: lang);
-    
-    // 3. Debounce/Wait (prevents catching echo)
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Use VoiceGuard to prevent self-listening
+    await voice.speakWithGuard(tts, message, lang);
 
     if (mounted) {
       setState(() { _isSpeaking = false; });
-      // 4. Rusume listening
-      await voice.resume();
     }
   }
 
@@ -141,12 +145,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleVoiceInput(String text) async {
-    // Input handling remains mostly same, just ensuring no TTS is triggered directly without using the helper
     String input = text.toLowerCase().trim();
     if (input.isEmpty) return;
     
-    // Global Commands
-    if (input.contains("back") || input.contains("piche") || input.contains("mage") || input.contains("parat") || input.contains("wapas")) {
+    // Use unified intent mapping
+    final intent = VoiceUtils.getIntent(text);
+    print("LoginIntent: $intent (Input: $text)");
+
+    // Global Navigation
+    if (intent == VoiceIntent.back) {
        if (_step > 0) {
          setState(() {
            _step--;
@@ -160,30 +167,38 @@ class _LoginScreenState extends State<LoginScreen> {
        return;
     }
     
-    if (input.contains("repeat") || input.contains("again") || input.contains("punha") || input.contains("fir se")) {
+    if (intent == VoiceIntent.repeat) {
        _speakPromptForStep();
        return;
     }
 
     // Register switch
-    if ((input.contains("register") || input.contains("create") || input.contains("khata") || input.contains("banva")) && _step == 0) {
-         Navigator.pushNamed(context, '/registration');
+    if (intent == VoiceIntent.register && _step == 0) {
+         await Navigator.pushNamed(context, '/registration');
+         // Initialize context again upon return if needed
+         _checkInitialState(); 
          return;
     }
-
+    
     // Logic per step
     if (_mode == AuthMode.login) {
        if (_step == 0) {
+          // If intents match "login", ignore. User is saying username.
+          if (intent == VoiceIntent.login) return; 
+
           setState(() {
-            _usernameController.text = text;
+            _usernameController.text = text; // Take raw input as username
             _step = 1;
           });
           _speakPromptForStep();
        } else if (_step == 1) {
+          // Password input
           String pass = text.replaceAll(' ', '');
           setState(() { 
             _passwordController.text = pass;
             _step = 2; // Move to biometric
+            // Trigger biometrics immediately after step update? 
+            // Yes, _speakPromptForStep handles it.
           }); 
           _speakPromptForStep();
        }
@@ -212,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (lang == 'hi') msg = "लॉगिन सफल (Login Successful).";
         if (lang == 'mr') msg = "लॉगिन यशस्वी (Login Successful).";
         
-        // We can't use _speakPrompt here because we want to STOP at the end, not RESUME.
+        // Direct speak (VoiceGuard logic not needed as we are leaving)
         final tts = Provider.of<TtsService>(context, listen: false);
         await tts.speak(msg, languageCode: lang);
         
@@ -223,7 +238,8 @@ class _LoginScreenState extends State<LoginScreen> {
         if (lang == 'hi') error = "लॉगिन विफल। अमान्य Username या Password.";
         if (lang == 'mr') error = "लॉगिन अयशस्वी. अमान्य Username किंवा Password.";
         
-        await _speakPrompt(error, lang); // Will resume voice for retry
+        // Use Guard for retry prompt
+        await _speakPrompt(error, lang); 
         
         setState(() {
            _step = 0; // Reset

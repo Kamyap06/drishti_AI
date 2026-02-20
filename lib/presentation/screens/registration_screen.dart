@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/language_service.dart';
 import '../../services/tts_service.dart';
 import '../../services/voice_service.dart';
+import '../../core/voice_utils.dart';
 import '../../services/auth_service.dart';
 import '../../services/biometric_service.dart'; 
 import '../widgets/mic_widget.dart';
@@ -61,24 +62,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   Future<void> _speakPrompt(String message, String lang) async {
     if (!mounted) return;
+    // Set local speaking state for UI feedback if needed, 
+    // though VoiceService now manages the critical state.
     setState(() { _isSpeaking = true; });
 
     final tts = Provider.of<TtsService>(context, listen: false);
     final voice = Provider.of<VoiceService>(context, listen: false);
 
-    // 1. Pause
-    await voice.pause();
-
-    // 2. Speak
-    await tts.speak(message, languageCode: lang);
-    
-    // 3. Debounce
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Use the new VoiceGuard
+    await voice.speakWithGuard(tts, message, lang);
 
     if (mounted) {
       setState(() { _isSpeaking = false; });
-      // 4. Resume
-      await voice.resume();
     }
   }
 
@@ -151,13 +146,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   void _handleVoiceInput(String text) async {
-    String input = text.toLowerCase().trim();
+    final intent = VoiceUtils.getIntent(text);
+    final input = text.toLowerCase();
+
     if (input.isEmpty) return;
 
     print("RegWizard: Input received: $input (Step: $_currentStep)");
 
     // Global navigation commands
-    if (input.contains("back") || input.contains("piche") || input.contains("mage") || input.contains("parat") || input.contains("wapas")) {
+    if (intent == VoiceIntent.back) {
+      
         if (_currentStep == RegStep.username) {
            Navigator.pop(context); // Go back to Login
            return;
@@ -173,7 +171,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         return;
     }
     
-    if (input.contains("repeat") || input.contains("again") || input.contains("fir se") || input.contains("punha")) {
+    if (intent == VoiceIntent.repeat) {
       _speakPromptForStep();
       return;
     }
@@ -189,12 +187,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         break;
 
       case RegStep.confirmUsername:
-        if (input.contains("next") || input.contains("yes") || input.contains("confirm") || input.contains("haan") || input.contains("ho")) {
+      if (intent == VoiceIntent.next) {
           setState(() {
             _currentStep = RegStep.password;
           });
           _speakPromptForStep();
-        } else if (input.contains("retry") || input.contains("change") || input.contains("no") || input.contains("nahi") || input.contains("nako")) {
+        } else if (intent == VoiceIntent.retry) {
           setState(() {
             _currentStep = RegStep.username;
             _usernameController.clear();
@@ -216,22 +214,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       case RegStep.biometric:
         break;
 
-      case RegStep.confirmRegister:
-        if (input.contains("register") || input.contains("create") || input.contains("submit") || input.contains("khata") || input.contains("banva")) {
-           setState(() {
-             _currentStep = RegStep.processing;
-             _isProcessing = true;
-           });
-           _performRegistration();
-        } else if (input.contains("retry") || input.contains("change") || input.contains("badal")) {
-           setState(() {
-             _currentStep = RegStep.password;
-             _passwordController.clear();
-             _biometricAuthenticated = false;
-           });
-           _speakPromptForStep();
-        }
-        break;
+        case RegStep.confirmRegister:
+        if (intent == VoiceIntent.register) {
+          
+          setState(() {
+            _currentStep = RegStep.processing;
+            _isProcessing = true;
+            });
+            
+            _performRegistration();
+            return;
+            }
+            
+            if (intent == VoiceIntent.retry) {
+              setState(() {
+                _currentStep = RegStep.password;
+                _passwordController.clear();
+                _biometricAuthenticated = false;
+                });
+                _speakPromptForStep();
+                return;
+                }
+                break;
+
         
       case RegStep.processing:
         break;
