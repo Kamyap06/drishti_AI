@@ -2,24 +2,62 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'database_service.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // 🔥 NEW
+import 'package:firebase_auth/firebase_auth.dart'; 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:logger/logger.dart';
 
 class AuthService {
   static const String _authKey = 'auth_token';
   final DatabaseService _dbService = DatabaseService();
+  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Logger _logger = Logger(printer: PrettyPrinter(methodCount: 0));
 
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance; // 🔥 NEW
+  Future<void> init() async {}
 
-  Future<void> init() async {
-    // Database initialization is handled by DatabaseService
+  String _normalizeUsername(String username) {
+    return username.trim().toLowerCase().replaceAll(' ', '');
+  }
+
+  String _normalizePassword(String password) {
+    String p = password.trim();
+    // Remove invisible unicode characters (ZWJ, ZWSP, LTR, RTL, etc.)
+    p = p.replaceAll(RegExp(r'[\u200B-\u200D\uFEFF\u200E\u200F]'), '');
+    
+    // Convert Devanagari numerals to ASCII
+    const devanagariDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+    for (int i = 0; i < devanagariDigits.length; i++) {
+      p = p.replaceAll(devanagariDigits[i], i.toString());
+    }
+
+    // Convert basic spoken numbers in Hindi/Marathi/English to digits
+    final wordMap = {
+      'shunya': '0', 'sunya': '0', 'zero': '0',
+      'ek': '1', 'one': '1',
+      'don': '2', 'do': '2', 'two': '2',
+      'teen': '3', 'tin': '3', 'three': '3',
+      'char': '4', 'chaar': '4', 'four': '4',
+      'paach': '5', 'pach': '5', 'panch': '5', 'five': '5',
+      'saha': '6', 'chhah': '6', 'che': '6', 'six': '6',
+      'saat': '7', 'sat': '7', 'seven': '7',
+      'aath': '8', 'aat': '8', 'eight': '8',
+      'nau': '9', 'nav': '9', 'nine': '9',
+    };
+    
+    wordMap.forEach((word, digit) {
+      p = p.replaceAll(RegExp(r'\b' + word + r'\b', caseSensitive: false), digit);
+    });
+
+    return p;
   }
 
   Future<bool> userExists(String username) async {
+    final normalized = _normalizeUsername(username);
     final db = await _dbService.database;
     final result = await db.query(
       'users',
       where: 'username = ?',
-      whereArgs: [username],
+      whereArgs: [normalized],
     );
     return result.isNotEmpty;
   }
@@ -35,81 +73,128 @@ class AuthService {
     return sha256.convert(bytes).toString();
   }
 
-  // 🔥 UPDATED REGISTER (keeps local DB + adds Firebase)
   Future<bool> register(String username, String password) async {
-    final db = await _dbService.database;
-    final hashedPassword = _hashPassword(password);
+    final normalizedPassword = _normalizePassword(password);
+    final normalizedUsername = _normalizeUsername(username);
+    final hashedPassword = _hashPassword(normalizedPassword);
+    final safeEmail = '$normalizedUsername@drishti.app';
     
+    _logger.i("Attempting registration for: '$normalizedUsername', Password Length: ${normalizedPassword.length}");
+
+    // Guard against weak passwords before Firebase call
+    if (normalizedPassword.length < 6) {
+      _logger.w("Registration blocked: Password is less than 6 characters.");
+      return false; // or throw Exception, but false fits the return signature
+    }
+
     try {
-      await db.insert('users', {
-        'username': username,
-        'password_hash': hashedPassword,
-        // 'recovery_pin_hash': null, 
-      });
-
-      // 🔥 Create Firebase user (cloud sync)
-      // Use timestamp-based email to support Hindi/Marathi usernames safely
-      // Stores real username in local DB, but uses safe ID for Auth
+      // 1. Await Firebase Auth Account Creation
+      UserCredential credential;
       try {
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-  
-        if (_firebaseAuth.currentUser == null) {
-           await _firebaseAuth.signInAnonymously();
-           }
+        credential = await _firebaseAuth.createUserWithEmailAndPassword(
+          email: safeEmail,
+          password: normalizedPassword,
+        );
+        _logger.i("Firebase Auth creation successful for: $normalizedUsername (UID: ${credential.user?.uid})");
+      } on FirebaseAuthException catch (e) {
+         _logger.e("FirebaseAuthException: [${e.code}] ${e.message}");
+         if (e.code == 'email-already-in-use') {
+            _logger.w("Firebase Auth user already exists. Attempting to login to sync local state.");
+            credential = await _firebaseAuth.signInWithEmailAndPassword(email: safeEmail, password: normalizedPassword);
+         } else {
+            // e.g. weak-password, invalid-email
+            rethrow; 
+         }
+      }
 
-             print("Firebase anonymous user created for $username");
-             } catch (e) {
-              print("Firebase auth error (ignored for offline): $e");
-              }
-              
-              return true;
-              } catch (e) {
-                print("Local DB Register Error: $e");
-                return false;
-                }
-                }
+      // 2. Force Token Refresh to ensure backend confirmation
+      await credential.user?.getIdToken(true);
+      _logger.i("Firebase Token refreshed successfully.");
 
-  // Password reset methods removed as per new biometric flow requirements.
+      // 3. Deterministic Firestore Write
+      final docRef = _firestore.collection('users').doc(credential.user!.uid);
+      _logger.i("Writing to Firestore at path: ${docRef.path}");
+      await docRef.set({
+        'username': normalizedUsername,
+        'createdAt': FieldValue.serverTimestamp(),
+        'platform': 'drishti_voice',
+      });
+      _logger.i("Firestore user profile set() completed.");
+      
+      // 4. Verify snapshot exists to guarantee transaction success
+      final snapshot = await docRef.get();
+      if (!snapshot.exists) {
+         throw Exception("Registration Verification Failed: Firestore document was not created.");
+      }
+      _logger.i("Firestore user profile confirmed written.");
 
-  // 🔥 UPDATED LOGIN (local auth + Firebase sync)
-  Future<bool> login(String username, String password) async {
-    final db = await _dbService.database;
-    final hashedPassword = _hashPassword(password);
-
-    final users = await db.query(
-      'users',
-      where: 'username = ? AND password_hash = ?',
-      whereArgs: [username, hashedPassword],
-    );
-
-    if (users.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_authKey, true);
-
-        // For login, we need to find the email associated with this username.
-        // HOWEVER, since we used a timestamp, we can't guess it easily unless we stored it locally or query by username.
-        // Current simplistic fix: If we are using this hybrid approach, Firebase Login is tricky without storing the email locally.
-        // OPTION 1: Store 'firebase_email' column in SQLite.
-        // OPTION 2: Just skip Firebase login for now if offline-first is priority (User requested "ensure Firebase hybrid user creation succeeds").
-        // Let's assume for this specific refactor we only care about creation success.
-        // If login fails on Firebase, that's fine for offline app.
-        // Future fix: Add 'firebase_email' to local schema.
-        
-        // Trying legacy method for backward compatibility if any old users exist:
-        try {
-          if (_firebaseAuth.currentUser == null) {
-            await _firebaseAuth.signInAnonymously();
-            }
-            print("Firebase session active for $username");
-            } catch (e) {
-
-           // Ignore login failure as we don't have the safe email stored locally yet
-           print("Firebase login skipped/failed (expected if new user): $e");
-        }
+      // 5. Local SQLite Persistence for Offline Fallback
+      final db = await _dbService.database;
+      await db.insert('users', {
+        'username': normalizedUsername,
+        'password_hash': hashedPassword,
+      });
+      _logger.i("Local SQLite insertion successful");
 
       return true;
+    } catch (e, stackTrace) {
+      _logger.e("🔥 REGISTRATION ERROR TYPE -> ${e.runtimeType}");
+      _logger.e("🔥 REGISTRATION ERROR DATA -> $e");
+      return false;
     }
-    return false;
+  }
+
+  Future<bool> login(String username, String password) async {
+    final normalizedPassword = _normalizePassword(password);
+    final normalizedUsername = _normalizeUsername(username);
+    final hashedPassword = _hashPassword(normalizedPassword);
+    final safeEmail = '$normalizedUsername@drishti.app';
+    
+    _logger.i("Attempting login for: $normalizedUsername");
+
+    try {
+       // 1. Firebase Auth Sign-In (Primary Source of Truth)
+       try {
+         final credential = await _firebaseAuth.signInWithEmailAndPassword(
+           email: safeEmail, 
+           password: normalizedPassword
+         );
+         await credential.user?.getIdToken(true);
+         
+         final prefs = await SharedPreferences.getInstance();
+         await prefs.setBool(_authKey, true);
+         
+         _logger.i("Firebase cloud login successful! Token refreshed and persisted.");
+         return true;
+       } on FirebaseAuthException catch (e) {
+         _logger.w("Firebase login failed (FirebaseAuthException): [${e.code}] ${e.message}");
+         _logger.w("Proceeding to check local SQLite cache for offline verification.");
+       } catch (e) {
+         _logger.w("Firebase login failed (General Error): $e. Proceeding to check local cache.");
+       }
+
+       // 2. Local Fallback Verification
+       final db = await _dbService.database;
+       final users = await db.query(
+         'users',
+         where: 'username = ? AND password_hash = ?',
+         whereArgs: [normalizedUsername, hashedPassword],
+       );
+
+       if (users.isNotEmpty) {
+         final prefs = await SharedPreferences.getInstance();
+         await prefs.setBool(_authKey, true);
+         _logger.i("Offline fallback login verified successfully via SQLite cache.");
+         return true;
+       }
+       
+       _logger.w("Offline fallback login failed: Invalid credentials for $normalizedUsername");
+       return false;
+       
+    } catch (e, stackTrace) {
+       _logger.e("Login Pipeline Error: $e", error: e, stackTrace: stackTrace);
+       return false;
+    }
   }
 
   Future<bool> isLoggedIn() async {
@@ -117,10 +202,10 @@ class AuthService {
     return prefs.getBool(_authKey) ?? false;
   }
 
-  // 🔥 UPDATED LOGOUT
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_authKey, false);
     await _firebaseAuth.signOut();
+    _logger.i("User logged out");
   }
 }

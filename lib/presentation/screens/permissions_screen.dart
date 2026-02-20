@@ -27,21 +27,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
   Future<void> _speakInitialPrompt() async {
     final tts = Provider.of<TtsService>(context, listen: false);
     await tts.speak(
-      "Welcome. Before we begin, Drishti needs permission to use your camera and microphone for voice control and object detection. Please say, 'Grant', or tap the button."
-    );
-    _listenForPermissionCommand();
-  }
-
-  void _listenForPermissionCommand() {
-    final voice = Provider.of<VoiceService>(context, listen: false);
-    voice.startListening(
-      languageCode: 'en',
-      onResult: (text) {
-        String t = text.toLowerCase();
-        if (t.contains("grant") || t.contains("yes") || t.contains("allow") || t.contains("haan")) {
-          _requestPermissions();
-        }
-      },
+      "Welcome. Before we begin, Drishti needs permission to use your camera and microphone for voice control and object detection. Please Grant By Clicking the button"
     );
   }
 
@@ -102,18 +88,6 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
                     LargeButton(
                       label: "Grant Permissions",
                       onPressed: _requestPermissions,
-                    ),
-                    const SizedBox(height: 20),
-                    Consumer<VoiceService>(
-                      builder: (context, voice, child) {
-                        return MicWidget(
-                          isListening: voice.isListening,
-                          onTap: () {
-                            if (voice.isListening) voice.stopListening();
-                            else _listenForPermissionCommand();
-                          },
-                        );
-                      },
                     ),
                   ],
                 ),

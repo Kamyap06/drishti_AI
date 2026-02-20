@@ -16,6 +16,7 @@ class VoiceService with ChangeNotifier {
   Function(String)? _onResultCallback;
   bool _isSpeaking = false; // VoiceGuard State
   Timer? _watchdogTimer;
+  final List<String> _intentQueue = [];
 
   // Initialize STT
   Future<bool> init() async {
@@ -96,15 +97,15 @@ class VoiceService with ChangeNotifier {
     try {
       await _speechToText.listen(
         onResult: (SpeechRecognitionResult result) {
-          // LOGICAL GATING: Ignore if speaking (Soft Mute)
-          if (_isSpeaking) {
-             print("STT: Ignored result (Speaking): ${result.recognizedWords}");
-             return;
-          }
-
           if (result.finalResult) {
             print('STT: Final: ${result.recognizedWords}');
-            _onResultCallback?.call(result.recognizedWords);
+            // LOGICAL GATING: Queue if speaking
+            if (_isSpeaking) {
+               print("STT: Queued result (Speaking): ${result.recognizedWords}");
+               _intentQueue.add(result.recognizedWords);
+            } else {
+               _onResultCallback?.call(result.recognizedWords);
+            }
           } 
           // Explicitly IGNORING partial results for stability as requested.
         },
@@ -157,28 +158,37 @@ class VoiceService with ChangeNotifier {
   bool get isListening => _isListening;
   bool get isSpeaking => _isSpeaking;
 
-  /// VOICE GUARD: Prevents self-listening during TTS
-  /// 1. Set _isSpeaking = true (Soft Mute).
-  /// 2. Speak.
-  /// 3. Wait (Debounce).
-  /// 4. Set _isSpeaking = false (Unmute).
-  /// Does NOT stop listening, ensuring zero latency.
+  /// VOICE GUARD: Prevents self-listening during TTS and flushes queued intents
   Future<void> speakWithGuard(dynamic ttsService, String text, String languageCode) async {
-      print("VoiceGuard: Speaking '$text' (Soft Mute)");
+      print("VoiceGuard: Speaking '$text'");
       
-      // Soft Mute: DO NOT STOP LISTENING
       _isSpeaking = true;
       notifyListeners(); 
+      
+      // Pause listener to avoid capturing TTS audio
+      await pause();
       
       // Speak
       await ttsService.speak(text, languageCode: languageCode);
       
-      // Debounce to let echo die down
-      await Future.delayed(const Duration(milliseconds: 1200));
+      // Resume listener
+      await resume();
       
-      print("VoiceGuard: Unmuting...");
+      // Microtask delay to ensure recognition pipeline re-arms
+      await Future.microtask(() {});
+      
+      print("VoiceGuard: Done speaking. Unmuting and flushing queue...");
       _isSpeaking = false;
       notifyListeners();
+      
+      if (_intentQueue.isNotEmpty) {
+         print("VoiceGuard: Flushing ${_intentQueue.length} queued intents");
+         final queue = List<String>.from(_intentQueue);
+         _intentQueue.clear();
+         for (var intentText in queue) {
+            _onResultCallback?.call(intentText);
+         }
+      }
   }
 
   /// Manually set speaking state for external TTS usage (e.g. sequential prompt)

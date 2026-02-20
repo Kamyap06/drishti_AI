@@ -120,8 +120,6 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startListening(); // Auto-start listening
       _startPassiveDetection(); // Auto-start camera in passive mode
-      _startListening(); // Auto-start listening
-      _startPassiveDetection(); // Auto-start camera in passive mode
     });
   }
 
@@ -267,28 +265,60 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   }
 
   /// ================= PREPROCESS =================
-  Float32List _convert(CameraImage image){
+  Float32List _convert(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final Float32List buffer = Float32List(inputSize * inputSize * 3);
 
-    final width=image.width;
-    final height=image.height;
+    if (Platform.isAndroid && image.format.group == ImageFormatGroup.nv21) {
+      final yPlane = image.planes[0].bytes;
+      final uPlane = image.planes[1].bytes;
+      final vPlane = image.planes[2].bytes;
 
-    final Float32List buffer =
-        Float32List(inputSize*inputSize*3);
+      final int uvRowStride = image.planes[1].bytesPerRow;
+      final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
 
-    final bytes=image.planes[0].bytes;
-    int index=0;
+      int index = 0;
+      for (int y = 0; y < inputSize; y++) {
+        for (int x = 0; x < inputSize; x++) {
+          int srcX = (x * width) ~/ inputSize;
+          int srcY = (y * height) ~/ inputSize;
 
-    for(int y=0;y<inputSize;y++){
-      for(int x=0;x<inputSize;x++){
-        int srcX=(x*width~/inputSize);
-        int srcY=(y*height~/inputSize);
-        int i=srcY*image.planes[0].bytesPerRow+srcX;
+          int yIndex = srcY * image.planes[0].bytesPerRow + srcX;
+          int uvX = srcX ~/ 2;
+          int uvY = srcY ~/ 2;
+          int uvIndex = uvY * uvRowStride + uvX * uvPixelStride;
 
-        double v=bytes[i]/255.0;
+          final yp = yPlane[yIndex];
+          final up = uPlane[uvIndex] - 128;
+          final vp = vPlane[uvIndex] - 128;
 
-        buffer[index++]=v;
-        buffer[index++]=v;
-        buffer[index++]=v;
+          int r = (yp + 1.370705 * vp).round().clamp(0, 255);
+          int g = (yp - 0.337633 * up - 0.698001 * vp).round().clamp(0, 255);
+          int b = (yp + 1.732446 * up).round().clamp(0, 255);
+
+          buffer[index++] = r / 255.0;
+          buffer[index++] = g / 255.0;
+          buffer[index++] = b / 255.0;
+        }
+      }
+    } else {
+      final bytes = image.planes[0].bytes;
+      int index = 0;
+      for (int y = 0; y < inputSize; y++) {
+        for (int x = 0; x < inputSize; x++) {
+          int srcX = (x * width) ~/ inputSize;
+          int srcY = (y * height) ~/ inputSize;
+          int i = srcY * image.planes[0].bytesPerRow + (srcX * 4);
+
+          double bp = bytes[i] / 255.0;
+          double gp = bytes[i + 1] / 255.0;
+          double rp = bytes[i + 2] / 255.0;
+
+          buffer[index++] = rp;
+          buffer[index++] = gp;
+          buffer[index++] = bp;
+        }
       }
     }
     return buffer;
@@ -320,7 +350,10 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       return;
     }
 
-    final input=[_convert(image)]; 
+    final Float32List flatBuffer = _convert(image);
+    final reshapedInput = flatBuffer.reshape([1, inputSize, inputSize, 3]);
+
+    final input = [reshapedInput]; 
     List<_Detection> detections=[];
 
     /// -------- LAYER 1: EfficientDet (Safety) - ALWAYS RUNS (Passive & Active) ----------
@@ -341,7 +374,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     // Parse EfficientDet
     for(int i=0;i<10;i++){
       double score=edScores[0][i];
-      if(score<0.5) continue; // Confidence threshold
+      if(score<0.3) continue; // Lowered confidence threshold
 
       int idx=edClasses[0][i].toInt();
       String label=labels[min(idx,labels.length-1)]
@@ -380,28 +413,33 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     /// -------- LAYER 2: YOLO (Navigation Landmarks) - ACTIVE MODE ONLY ----------
     if(_canProcess) debugPrint("OD: YOLO started (Active)");
 
-    var yoloOutput = List.generate(
-        1, (_) => List.generate(8400, (_) => List.filled(10,0.0)));
+    var yoloOutputTensor = _yoloInterpreter!.getOutputTensor(0);
+    List<int> yoloShape = yoloOutputTensor.shape; 
+    int numAnchors = yoloShape.length > 1 ? yoloShape[1] : 8400;
+    int numFeatures = yoloShape.length > 2 ? yoloShape[2] : 10;
 
-    _yoloInterpreter!.run(input, yoloOutput); 
+    var yoloOutput = List.generate(
+        1, (_) => List.generate(numAnchors, (_) => List.filled(numFeatures, 0.0)));
+
+    _yoloInterpreter!.run(reshapedInput, yoloOutput); 
 
     // Parse YOLO
-    for(int i=0;i<8400;i+=120){
+    for(int i=0; i<numAnchors; i++){
 
       double obj=yoloOutput[0][i][4];
-      if(obj<0.4) continue;
+      if(obj<0.25) continue; // Temporarily lowered
 
       int bestClass=0;
       double bestScore=0;
 
-      for(int c=0;c<yoloLabels.length;c++){
+      for(int c=0; c<yoloLabels.length && (5+c) < numFeatures; c++){
         if(yoloOutput[0][i][5+c]>bestScore){
           bestScore=yoloOutput[0][i][5+c];
           bestClass=c;
         }
       }
 
-      if(bestScore*obj>0.45){
+      if(bestScore*obj>0.25){
 
         double cx=yoloOutput[0][i][0];
         double cy=yoloOutput[0][i][1];

@@ -34,11 +34,9 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     // LOGICAL GATING: Mic stays active but ignores input
     voice.setSpeaking(true);
     
-    // Speak sequentially with correct voice for each language
+    // Speak prompt
     await tts.speakSequentially([
       {'text': "Welcome to Drishti. Please select your language. English, Hindi, or Marathi.", 'lang': 'en'},
-      {'text': "दृष्टि में आपका स्वागत है। कृपया अपनी भाषा चुनें। अंग्रेजी, हिंदी, या मराठी।", 'lang': 'hi'},
-      {'text': "दृष्टीमध्ये आपले स्वागत आहे. कृपया आपली भाषा निवडा. इंग्रजी, हिंदी, किंवा मराठी।", 'lang': 'mr'},
     ]);
     
     // UNMUTE

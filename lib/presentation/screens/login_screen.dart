@@ -42,24 +42,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkInitialState() async {
-  final auth = Provider.of<AuthService>(context, listen: false);
-
-  bool hasUsers = false;
-
-  try {
-    hasUsers = await auth.hasUsers();
-  } catch (_) {}
-
-  if (!mounted) return;
-
-  if (!hasUsers) {
-    await Navigator.pushNamed(context, '/registration');
-    return;
+    if (!mounted) return;
+    _speakPromptForStep();
+    _startPersistentListening();
   }
-
-  _speakPromptForStep();
-  _startPersistentListening();
-}
 
 
   void _startPersistentListening() {
@@ -145,7 +131,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleVoiceInput(String text) async {
-    String input = text.toLowerCase().trim();
+    text = VoiceUtils.normalizeToEnglish(text); // Apply universal normalization early
+    String input = text.toLowerCase();
     if (input.isEmpty) return;
     
     // Use unified intent mapping
@@ -187,13 +174,13 @@ class _LoginScreenState extends State<LoginScreen> {
           if (intent == VoiceIntent.login) return; 
 
           setState(() {
-            _usernameController.text = text; // Take raw input as username
+            _usernameController.text = text; // Sanitized by early _normalizeInput
             _step = 1;
           });
           _speakPromptForStep();
        } else if (_step == 1) {
           // Password input
-          String pass = text.replaceAll(' ', '');
+          String pass = text; // Sanitized by early _normalizeInput
           setState(() { 
             _passwordController.text = pass;
             _step = 2; // Move to biometric

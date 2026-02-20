@@ -26,7 +26,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   String _tempUsername = "";
   
   bool _isProcessing = false;
-  bool _isSpeaking = false; 
   bool _biometricAuthenticated = false;
 
   @override
@@ -53,7 +52,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       languageCode: lang,
       continuous: true,
       onResult: (text) {
-        if (!_isSpeaking && !_isProcessing) {
+        if (!_isProcessing) {
            _handleVoiceInput(text);
         }
       },
@@ -62,19 +61,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   Future<void> _speakPrompt(String message, String lang) async {
     if (!mounted) return;
-    // Set local speaking state for UI feedback if needed, 
-    // though VoiceService now manages the critical state.
-    setState(() { _isSpeaking = true; });
 
     final tts = Provider.of<TtsService>(context, listen: false);
     final voice = Provider.of<VoiceService>(context, listen: false);
 
     // Use the new VoiceGuard
     await voice.speakWithGuard(tts, message, lang);
-
-    if (mounted) {
-      setState(() { _isSpeaking = false; });
-    }
   }
 
   Future<void> _speakPromptForStep() async {
@@ -100,9 +92,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         if (lang == 'mr') prompt = "कृपया आपला Password बोला.";
         break;
       case RegStep.biometric:
-        prompt = "Please authenticate with your fingerprint or face to secure your account.";
-        if (lang == 'hi') prompt = "अपने खाते को सुरक्षित करने के लिए कृपया अपने फिंगरप्रिंट या चेहरे से प्रमाणित करें।";
-        if (lang == 'mr') prompt = "आपले खाते सुरक्षित करण्यासाठी कृपया आपल्या फिंगरप्रिंट किंवा चेहऱ्याने प्रमाणित करा.";
+        prompt = "Please authenticate with your fingerprint to secure your account.";
+        if (lang == 'hi') prompt = "अपने खाते को सुरक्षित करने के लिए कृपया अपने फिंगरप्रिंट से प्रमाणित करें।";
+        if (lang == 'mr') prompt = "आपले खाते सुरक्षित करण्यासाठी कृपया आपल्या फिंगरप्रिंट प्रमाणित करा.";
         break;
       case RegStep.confirmRegister:
         prompt = "All set. Say 'Register' to create your account, or 'Back' to start over.";
@@ -145,102 +137,108 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
-  void _handleVoiceInput(String text) async {
-    final intent = VoiceUtils.getIntent(text);
-    final input = text.toLowerCase();
-
-    if (input.isEmpty) return;
-
-    print("RegWizard: Input received: $input (Step: $_currentStep)");
-
-    // Global navigation commands
-    if (intent == VoiceIntent.back) {
+  void _handleVoiceInput(String text) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       
-        if (_currentStep == RegStep.username) {
-           Navigator.pop(context); // Go back to Login
-           return;
-        }
-        setState(() {
-           // Simple back logic: go to start or previous logical block
-           _currentStep = RegStep.username; 
-           _usernameController.clear();
-           _passwordController.clear();
-           _biometricAuthenticated = false;
-        });
+      final intent = VoiceUtils.getIntent(text);
+      text = VoiceUtils.normalizeToEnglish(text); // Apply universal normalization early
+      final input = text.toLowerCase();
+
+      if (input.isEmpty) return;
+      
+      final voice = Provider.of<VoiceService>(context, listen: false);
+      print("RegWizard Trace: text='$text', intent=$intent, step=$_currentStep, voice.isListening=${voice.isListening}");
+
+      // Global navigation commands
+      if (intent == VoiceIntent.back) {
+          if (_currentStep == RegStep.username) {
+             Navigator.pop(context); // Go back to Login
+             return;
+          }
+          setState(() {
+             // Simple back logic: go to start or previous logical block
+             _currentStep = RegStep.username; 
+             _usernameController.clear();
+             _passwordController.clear();
+             _biometricAuthenticated = false;
+          });
+          _speakPromptForStep();
+          return;
+      }
+      
+      if (intent == VoiceIntent.repeat) {
         _speakPromptForStep();
         return;
-    }
-    
-    if (intent == VoiceIntent.repeat) {
-      _speakPromptForStep();
-      return;
-    }
+      }
 
-    switch (_currentStep) {
-      case RegStep.username:
-         setState(() {
-          _tempUsername = text; // Keep original case
-          _usernameController.text = text;
-          _currentStep = RegStep.confirmUsername;
-        });
-        _speakPromptForStep();
-        break;
-
-      case RegStep.confirmUsername:
-      if (intent == VoiceIntent.next) {
-          setState(() {
-            _currentStep = RegStep.password;
+      switch (_currentStep) {
+        case RegStep.username:
+           setState(() {
+            _tempUsername = text; // Keep original case
+            _usernameController.text = text;
+            _currentStep = RegStep.confirmUsername;
           });
           _speakPromptForStep();
-        } else if (intent == VoiceIntent.retry) {
+          break;
+
+        case RegStep.confirmUsername:
+          if (intent == VoiceIntent.next) {
+            setState(() {
+              _currentStep = RegStep.password;
+            });
+            _speakPromptForStep();
+          } else if (intent == VoiceIntent.retry) {
+            setState(() {
+              _currentStep = RegStep.username;
+              _usernameController.clear();
+            });
+            _speakPromptForStep();
+          }
+          break;
+
+        case RegStep.password:
+          String pass = text;
           setState(() {
-            _currentStep = RegStep.username;
-            _usernameController.clear();
+            _passwordController.text = pass;
+            _currentStep = RegStep.biometric; // Move to biometric
           });
           _speakPromptForStep();
-        }
-        break;
+          break;
 
-      case RegStep.password:
-        // Accept anything as password, clean whitespace
-        String pass = text.replaceAll(' ', '');
-        setState(() {
-          _passwordController.text = pass;
-          _currentStep = RegStep.biometric; // Move to biometric
-        });
-        _speakPromptForStep();
-        break;
-
-      case RegStep.biometric:
-        break;
+        case RegStep.biometric:
+          break;
 
         case RegStep.confirmRegister:
-        if (intent == VoiceIntent.register) {
-          
-          setState(() {
-            _currentStep = RegStep.processing;
-            _isProcessing = true;
+          if (intent == VoiceIntent.register) {
+
+            if (!_biometricAuthenticated) {
+              return;
+            }
+
+            setState(() {
+              _currentStep = RegStep.processing;
+              _isProcessing = true;
             });
             
             _performRegistration();
             return;
-            }
-            
-            if (intent == VoiceIntent.retry) {
-              setState(() {
-                _currentStep = RegStep.password;
-                _passwordController.clear();
-                _biometricAuthenticated = false;
-                });
-                _speakPromptForStep();
-                return;
-                }
-                break;
-
+          }
+          if (intent == VoiceIntent.retry) {
+            setState(() {
+              _currentStep = RegStep.password;
+              _passwordController.clear();
+              _biometricAuthenticated = false;
+            });
+            _speakPromptForStep();
+            return;
+          }
+          break;
         
-      case RegStep.processing:
-        break;
-    }
+        case RegStep.processing:
+          break;
+      }
+    });
   }
 
   Future<void> _performRegistration() async {
@@ -323,9 +321,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                  Consumer<VoiceService>(
                     builder: (context, voice, child) {
                       return Icon(
-                        (voice.isListening && !_isSpeaking) ? Icons.mic : Icons.mic_none,
+                        (voice.isListening && !voice.isSpeaking) ? Icons.mic : Icons.mic_none,
                         size: 64,
-                        color: (voice.isListening && !_isSpeaking) ? Colors.red : Colors.grey,
+                        color: (voice.isListening && !voice.isSpeaking) ? Colors.red : Colors.grey,
                       );
                     }
                  ),
