@@ -7,7 +7,8 @@ class BiometricService {
   Future<bool> isBiometricAvailable() async {
     try {
       final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
-      final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
+      final bool canAuthenticate =
+          canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
       return canAuthenticate;
     } on PlatformException catch (e) {
       print("Biometric avail check error: $e");
@@ -21,7 +22,8 @@ class BiometricService {
         localizedReason: 'Please authenticate to continue',
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: false, // Allow PIN/Pattern fallback if biometrics fail or aren't set up
+          biometricOnly:
+              false, // Allow PIN/Pattern fallback if biometrics fail or aren't set up
         ),
       );
     } on PlatformException catch (e) {

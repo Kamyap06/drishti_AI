@@ -4,7 +4,7 @@ class MicWidget extends StatefulWidget {
   final bool isListening;
   final VoidCallback onTap;
 
-  const MicWidget({Key? key, required this.isListening, required this.onTap}) : super(key: key);
+  const MicWidget({super.key, required this.isListening, required this.onTap});
 
   @override
   State<MicWidget> createState() => _MicWidgetState();
@@ -26,10 +26,10 @@ class _MicWidgetState extends State<MicWidget> with TickerProviderStateMixin {
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.5).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    
+
     _rotateController = AnimationController(
-      vsync: this, 
-      duration: const Duration(seconds: 10)
+      vsync: this,
+      duration: const Duration(seconds: 10),
     )..repeat();
   }
 
@@ -65,8 +65,12 @@ class _MicWidgetState extends State<MicWidget> with TickerProviderStateMixin {
                       shape: BoxShape.circle,
                       border: Border.all(color: activeColor, width: 2),
                       boxShadow: [
-                         BoxShadow(color: activeColor.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)
-                      ]
+                        BoxShadow(
+                          color: activeColor.withOpacity(0.5),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -83,16 +87,17 @@ class _MicWidgetState extends State<MicWidget> with TickerProviderStateMixin {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: widget.isListening 
-                    ? [Colors.cyan, Colors.blue] 
+                colors: widget.isListening
+                    ? [Colors.cyan, Colors.blue]
                     : [Colors.grey[800]!, Colors.grey[900]!],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: (widget.isListening ? Colors.cyan : Colors.black).withOpacity(0.5),
+                  color: (widget.isListening ? Colors.cyan : Colors.black)
+                      .withOpacity(0.5),
                   blurRadius: 15,
                   offset: const Offset(0, 10),
-                )
+                ),
               ],
               border: Border.all(
                 color: Colors.white.withOpacity(0.1),
@@ -105,28 +110,35 @@ class _MicWidgetState extends State<MicWidget> with TickerProviderStateMixin {
               size: 36,
             ),
           ),
-          
+
           // Rotating Border Detail
           if (widget.isListening)
-          RotationTransition(
-            turns: _rotateController,
-            child: Container(
-              width: 90, 
-              height: 90,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.1),
-                  width: 1,
-                  style: BorderStyle.solid
-                )
-              ),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+            RotationTransition(
+              turns: _rotateController,
+              child: Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.1),
+                    width: 1,
+                    style: BorderStyle.solid,
+                  ),
+                ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
               ),
             ),
-          )
         ],
       ),
     );

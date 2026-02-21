@@ -6,7 +6,7 @@ import '../../services/tts_service.dart';
 import '../widgets/large_button.dart';
 
 class TtsScreen extends StatefulWidget {
-  const TtsScreen({Key? key}) : super(key: key);
+  const TtsScreen({super.key});
 
   @override
   State<TtsScreen> createState() => _TtsScreenState();
@@ -18,7 +18,10 @@ class _TtsScreenState extends State<TtsScreen> {
   Future<void> _speak() async {
     if (_controller.text.isEmpty) return;
     final tts = Provider.of<TtsService>(context, listen: false);
-    final lang = Provider.of<LanguageService>(context, listen: false).currentLocale.languageCode;
+    final lang = Provider.of<LanguageService>(
+      context,
+      listen: false,
+    ).currentLocale.languageCode;
     await tts.speak(_controller.text, languageCode: lang);
   }
 
@@ -32,12 +35,12 @@ class _TtsScreenState extends State<TtsScreen> {
           children: [
             TextField(
               controller: _controller,
-               maxLines: 5,
-               decoration: const InputDecoration(
-                 hintText: "Enter text to speak...",
-                 border: OutlineInputBorder(),
-               ),
-               style: const TextStyle(fontSize: 20),
+              maxLines: 5,
+              decoration: const InputDecoration(
+                hintText: "Enter text to speak...",
+                border: OutlineInputBorder(),
+              ),
+              style: const TextStyle(fontSize: 20),
             ),
             const SizedBox(height: 24),
             LargeButton(

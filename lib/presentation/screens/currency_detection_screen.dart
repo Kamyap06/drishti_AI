@@ -4,21 +4,23 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:provider/provider.dart';
 import '../../services/language_service.dart';
 import '../../services/tts_service.dart';
-import '../../services/voice_service.dart';
+import '../../services/voice_controller.dart';
 import '../widgets/mic_widget.dart';
-import 'dart:io';
+import '../../services/app_interaction_controller.dart';
+import '../../services/currency_classifier_service.dart';
 
 class CurrencyDetectionScreen extends StatefulWidget {
-  const CurrencyDetectionScreen({Key? key}) : super(key: key);
+  const CurrencyDetectionScreen({super.key});
 
   @override
-  State<CurrencyDetectionScreen> createState() => _CurrencyDetectionScreenState();
+  State<CurrencyDetectionScreen> createState() =>
+      _CurrencyDetectionScreenState();
 }
 
 class _CurrencyDetectionScreenState extends State<CurrencyDetectionScreen> {
   CameraController? _controller;
   bool _isProcessing = false;
-  bool _isNavigatingBack = false;
+  final bool _isNavigatingBack = false;
   final TextRecognizer _textRecognizer = TextRecognizer();
 
   @override
@@ -26,6 +28,12 @@ class _CurrencyDetectionScreenState extends State<CurrencyDetectionScreen> {
     super.initState();
     _initializeCamera();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final interaction = Provider.of<AppInteractionController>(
+        context,
+        listen: false,
+      );
+      interaction.setActiveFeature(ActiveFeature.currencyDetection);
+      interaction.registerFeatureCallbacks(onDetect: _captureAndProcess);
       _announce();
     });
   }
@@ -43,111 +51,67 @@ class _CurrencyDetectionScreenState extends State<CurrencyDetectionScreen> {
   }
 
   Future<void> _announce() async {
-    final tts = Provider.of<TtsService>(context, listen: false);
-    final lang = Provider.of<LanguageService>(context, listen: false).currentLocale.languageCode;
-    final voice = Provider.of<VoiceService>(context, listen: false);
-    await voice.stopListening();
-    tts.speak("Detection started.", languageCode: lang);
-    _listen();
-  }
-
-  void _listen() {
-    final voice = Provider.of<VoiceService>(context, listen: false);
-    final langService = Provider.of<LanguageService>(context, listen: false);
-    
-    voice.startListening(
-      languageCode: langService.currentLocale.languageCode,
-      continuous: true,
-      onResult: (text) {
-        print("CurrencyDetectionScreen: Heard: $text");
-        // langService.checkAndAdaptLanguage(text); // REMOVED: Strict locking enforced
-        String t = text.toLowerCase();
-        if (t.contains("detect") || t.contains("scan")) {
-           _captureAndProcess();
-        } else if (t.contains("back") || 
-                   t.contains("piche") || t.contains("wapas") || 
-                   t.contains("maghe") || t.contains("parat")) {
-           _handleBackCommand();
-        }
-      },
+    final interaction = Provider.of<AppInteractionController>(
+      context,
+      listen: false,
     );
-  }
-
-  Future<void> _handleBackCommand() async {
-    if (_isNavigatingBack) return;
-    
-    setState(() {
-      _isNavigatingBack = true;
-      _isProcessing = false;
+    await interaction.runExclusive(() async {
+      final tts = Provider.of<TtsService>(context, listen: false);
+      final lang = Provider.of<LanguageService>(
+        context,
+        listen: false,
+      ).currentLocale.languageCode;
+      await tts.speak(
+        CurrencySpeechFormatter.formatGreeting(lang),
+        languageCode: lang,
+      );
     });
-
-    print("CurrencyDetectionScreen: Voice 'back' command detected. Cleaning up...");
-
-    final tts = Provider.of<TtsService>(context, listen: false);
-    final voice = Provider.of<VoiceService>(context, listen: false);
-
-    // 1. Halt all active pipelines
-    await tts.stop();
-    await voice.stopListening();
-    
-    // Stop camera if possible (Currency detection doesn't use stream, but we should dispose)
-    // Actually, just dispose in the next step or stop any ongoing takePicture if possible
-    
-    // 2. Dispose resources
-    _textRecognizer.close();
-    _controller?.dispose();
-
-    // 3. Hard navigation reset
-    if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/dashboard', (route) => false);
-    }
   }
 
   Future<void> _captureAndProcess() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isProcessing) return;
+    if (_controller == null ||
+        !_controller!.value.isInitialized ||
+        _isProcessing)
+      return;
 
-    setState(() => _isProcessing = true);
-    final tts = Provider.of<TtsService>(context, listen: false);
-    final lang = Provider.of<LanguageService>(context, listen: false).currentLocale.languageCode;
-    final voice = Provider.of<VoiceService>(context, listen: false);
-    await voice.stopListening();
-    await tts.speak("Scanning...", languageCode: lang);
+    final interaction = Provider.of<AppInteractionController>(
+      context,
+      listen: false,
+    );
 
-    try {
-      final image = await _controller!.takePicture();
-      final inputImage = InputImage.fromFilePath(image.path);
-      final recognizedText = await _textRecognizer.processImage(inputImage);
-      
-      String result = _analyzeCurrency(recognizedText.text);
-      
-      await tts.speak(result, languageCode: lang);
+    await interaction.runExclusive(() async {
+      setState(() => _isProcessing = true);
+      final tts = Provider.of<TtsService>(context, listen: false);
+      final lang = Provider.of<LanguageService>(
+        context,
+        listen: false,
+      ).currentLocale.languageCode;
 
-    } catch (e) {
-      await tts.speak("Error scanning.", languageCode: lang);
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-      _listen(); // Resume listening for next command
-    }
-  }
+      await tts.speak(
+        CurrencySpeechFormatter.formatScanning(lang),
+        languageCode: lang,
+      );
 
-  String _analyzeCurrency(String text) {
-    String t = text.toUpperCase();
-    
-    // Heuristic for Indian Currency
-    bool isIndian = t.contains("RESERVE BANK OF INDIA") || t.contains("RUPEES") || t.contains("₹");
-    
-    // Numbers
-    if (t.contains("2000")) return "₹2000 note detected.";
-    if (t.contains("500")) return "₹500 note detected.";
-    if (t.contains("200")) return "₹200 note detected.";
-    if (t.contains("100")) return "₹100 note detected.";
-    if (t.contains("50")) return "₹50 note detected.";
-    if (t.contains("20")) return "₹20 note detected.";
-    if (t.contains("10")) return "₹10 note detected.";
-    
-    if (isIndian) return "Indian currency detected but value unclear.";
-    
-    return "No valid currency detected.";
+      try {
+        final image = await _controller!.takePicture();
+        final inputImage = InputImage.fromFilePath(image.path);
+        final recognizedText = await _textRecognizer.processImage(inputImage);
+
+        final pipeline = MultilingualCurrencyPipeline();
+        final result = await pipeline.process(recognizedText.text, lang);
+
+        String ttsMessage = CurrencySpeechFormatter.formatResult(result);
+
+        await tts.speak(ttsMessage, languageCode: lang);
+      } catch (e) {
+        await tts.speak(
+          CurrencySpeechFormatter.formatError(lang),
+          languageCode: lang,
+        );
+      } finally {
+        if (mounted) setState(() => _isProcessing = false);
+      }
+    }); // runExclusive
   }
 
   @override
@@ -174,54 +138,70 @@ class _CurrencyDetectionScreenState extends State<CurrencyDetectionScreen> {
         children: [
           SizedBox.expand(child: CameraPreview(_controller!)),
           // Pro Overlay
-           Positioned.fill(
-             child: Container(
-               decoration: BoxDecoration(
-                 gradient: LinearGradient(
-                   begin: Alignment.topCenter,
-                   end: Alignment.bottomCenter,
-                   colors: [
-                     Colors.black.withOpacity(0.6),
-                     Colors.transparent,
-                     Colors.transparent,
-                     Colors.black.withOpacity(0.8)
-                   ],
-                   stops: const [0.0, 0.2, 0.7, 1.0],
-                 )
-               ),
-             )
-           ),
-          if (_isProcessing) 
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withAlpha(153),
+                    Colors.transparent,
+                    Colors.transparent,
+                    Colors.black.withAlpha(204),
+                  ],
+                  stops: const [0.0, 0.2, 0.7, 1.0],
+                ),
+              ),
+            ),
+          ),
+          if (_isProcessing)
             Container(
               color: Colors.black54,
-              child: const Center(child: CircularProgressIndicator(color: Colors.cyanAccent)),
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.cyanAccent),
+              ),
             ),
           Positioned(
-             bottom: 40, left: 0, right: 0,
-             child: Column(
-               children: [
-                 Consumer<VoiceService>(
-                   builder: (ctx, voice, _) => MicWidget(
-                     isListening: voice.isListening || _isProcessing, 
-                     onTap: _listen
-                   )
-                 ),
-                 const SizedBox(height: 20),
-                 Container(
-                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                   decoration: BoxDecoration(
-                     color: Colors.black.withOpacity(0.6),
-                     borderRadius: BorderRadius.circular(30),
-                     border: Border.all(color: Colors.cyanAccent.withOpacity(0.5))
-                   ),
-                   child: const Text(
-                     "Say 'Detect' to scan",
-                     style: TextStyle(color: Colors.white, fontSize: 16),
-                   ),
-                 )
-               ],
-             )
-          )
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Column(
+              children: [
+                Consumer<AppInteractionController>(
+                  builder: (context, interaction, _) {
+                    final voice = Provider.of<VoiceController>(context);
+                    return MicWidget(
+                      isListening: voice.isListening || interaction.isBusy,
+                      onTap: () {
+                        if (voice.isListening) {
+                          interaction.stopGlobalListening();
+                        } else {
+                          interaction.startGlobalListening();
+                        }
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withAlpha(153),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.cyanAccent.withAlpha(128)),
+                  ),
+                  child: const Text(
+                    "Say 'Detect' to scan",
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

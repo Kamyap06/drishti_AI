@@ -15,33 +15,42 @@ class AppTheme {
     scaffoldBackgroundColor: darkBackground,
     primaryColor: primaryAccent,
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    
+
     // Modern Google Fonts
     textTheme: TextTheme(
       headlineLarge: GoogleFonts.outfit(
-        fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.0
+        fontSize: 32,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+        letterSpacing: 1.0,
       ),
       headlineMedium: GoogleFonts.outfit(
-        fontSize: 26, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.9)
+        fontSize: 26,
+        fontWeight: FontWeight.w600,
+        color: Colors.white.withOpacity(0.9),
       ),
       bodyLarge: GoogleFonts.inter(
-        fontSize: 18, color: Colors.white.withOpacity(0.9), height: 1.5
+        fontSize: 18,
+        color: Colors.white.withOpacity(0.9),
+        height: 1.5,
       ),
       bodyMedium: GoogleFonts.inter(
-        fontSize: 16, color: Colors.white.withOpacity(0.7)
+        fontSize: 16,
+        color: Colors.white.withOpacity(0.7),
       ),
       labelLarge: GoogleFonts.outfit(
-        fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
+        color: Colors.black,
       ),
     ),
-    
+
     // cardTheme: Removed to resolve type error
     // cardTheme: CardTheme(
     //   color: cardColor,
     //   elevation: 4,
     //   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     // ),
-
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: primaryAccent,
@@ -49,21 +58,26 @@ class AppTheme {
         elevation: 6,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold),
+        textStyle: GoogleFonts.outfit(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
         shadowColor: primaryAccent.withOpacity(0.4),
       ),
     ),
-    
+
     appBarTheme: AppBarTheme(
       backgroundColor: darkBackground,
       elevation: 0,
       centerTitle: true,
       titleTextStyle: GoogleFonts.outfit(
-        fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white
+        fontSize: 24,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
       ),
       iconTheme: const IconThemeData(color: Colors.white),
     ),
-    
+
     iconTheme: const IconThemeData(color: primaryAccent, size: 28),
   );
 }

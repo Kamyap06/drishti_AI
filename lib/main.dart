@@ -4,8 +4,9 @@ import 'package:firebase_core/firebase_core.dart'; // NEW
 import 'core/theme.dart';
 import 'services/language_service.dart';
 import 'services/tts_service.dart';
-import 'services/voice_service.dart';
+import 'services/voice_controller.dart';
 import 'services/auth_service.dart';
+import 'services/app_interaction_controller.dart';
 import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/language_selection_screen.dart';
 import 'presentation/screens/login_screen.dart';
@@ -21,7 +22,7 @@ import 'presentation/screens/permissions_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(); // NEW
-  
+
   final authService = AuthService();
   await authService.init();
 
@@ -31,15 +32,23 @@ void main() async {
   final ttsService = TtsService();
   await ttsService.init();
 
-  final voiceService = VoiceService();
-  await voiceService.init();
+  final voiceController = VoiceController();
+  voiceController.setTtsService(ttsService);
+  await voiceController.init();
+
+  final appInteractionController = AppInteractionController(
+    voiceController: voiceController,
+    ttsService: ttsService,
+    languageService: languageService,
+  );
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: languageService),
         Provider.value(value: ttsService),
-        ChangeNotifierProvider.value(value: voiceService),
+        ChangeNotifierProvider.value(value: voiceController),
+        ChangeNotifierProvider.value(value: appInteractionController),
         Provider.value(value: authService),
       ],
       child: const MyApp(),
@@ -48,12 +57,18 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final interactionController = Provider.of<AppInteractionController>(
+      context,
+      listen: false,
+    );
+
     return MaterialApp(
       title: 'Drishti',
+      navigatorKey: interactionController.navigatorKey,
       theme: AppTheme.pTheme,
       debugShowCheckedModeBanner: false,
       initialRoute: '/',

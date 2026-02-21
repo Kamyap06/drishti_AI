@@ -8,26 +8,30 @@ class LargeButton extends StatefulWidget {
   final IconData? icon;
 
   const LargeButton({
-    Key? key,
+    super.key,
     required this.label,
     required this.onPressed,
     this.backgroundColor,
     this.gradientColors,
     this.icon,
-  }) : super(key: key);
+  });
 
   @override
   State<LargeButton> createState() => _LargeButtonState();
 }
 
-class _LargeButtonState extends State<LargeButton> with SingleTickerProviderStateMixin {
+class _LargeButtonState extends State<LargeButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 100));
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
     _scale = Tween<double>(begin: 1.0, end: 0.95).animate(_controller);
   }
 
@@ -42,18 +46,20 @@ class _LargeButtonState extends State<LargeButton> with SingleTickerProviderStat
     _controller.reverse();
     widget.onPressed();
   }
+
   void _onTapCancel() => _controller.reverse();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     // Default gradient if none provided
-    final gradient = widget.gradientColors ?? 
-      [
-        widget.backgroundColor ?? theme.primaryColor,
-        (widget.backgroundColor ?? theme.primaryColor).withOpacity(0.7)
-      ];
+    final gradient =
+        widget.gradientColors ??
+        [
+          widget.backgroundColor ?? theme.primaryColor,
+          (widget.backgroundColor ?? theme.primaryColor).withOpacity(0.7),
+        ];
 
     return Semantics(
       button: true,
@@ -64,7 +70,8 @@ class _LargeButtonState extends State<LargeButton> with SingleTickerProviderStat
         onTapCancel: _onTapCancel,
         child: AnimatedBuilder(
           animation: _controller,
-          builder: (context, child) => Transform.scale(scale: _scale.value, child: child),
+          builder: (context, child) =>
+              Transform.scale(scale: _scale.value, child: child),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
@@ -80,31 +87,34 @@ class _LargeButtonState extends State<LargeButton> with SingleTickerProviderStat
                   color: gradient.first.withOpacity(0.4),
                   blurRadius: 15,
                   offset: const Offset(0, 8),
-                )
+                ),
               ],
-              border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.1),
+                width: 1,
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                 if (widget.icon != null) ...[
-                   Container(
-                     padding: const EdgeInsets.all(8),
-                     decoration: BoxDecoration(
-                       color: Colors.white.withOpacity(0.2),
-                       shape: BoxShape.circle,
-                     ),
-                     child: Icon(widget.icon, size: 28, color: Colors.black),
-                   ),
-                   const SizedBox(width: 16),
-                 ],
-                 Text(
-                   widget.label.toUpperCase(),
-                   style: theme.textTheme.labelLarge?.copyWith(
-                     color: Colors.black, // Dark text on bright accents
-                     letterSpacing: 1.2,
-                   ),
-                 ),
+                if (widget.icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(widget.icon, size: 28, color: Colors.black),
+                  ),
+                  const SizedBox(width: 16),
+                ],
+                Text(
+                  widget.label.toUpperCase(),
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: Colors.black, // Dark text on bright accents
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ],
             ),
           ),

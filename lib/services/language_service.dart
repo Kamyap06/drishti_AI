@@ -19,22 +19,22 @@ class LanguageService extends ChangeNotifier {
       _currentLocale = Locale(langCode);
       _isLanguageSelected = true;
     } else {
-       _isLanguageSelected = false;
+      _isLanguageSelected = false;
     }
     notifyListeners();
   }
 
   Future<void> setLanguage(String languageCode) async {
     if (!AppConstants.languageNames.containsKey(languageCode)) return;
-    
+
     _currentLocale = Locale(languageCode);
     _isLanguageSelected = true;
-    
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefKey, languageCode);
     notifyListeners();
   }
-  
+
   Future<void> clearLanguage() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefKey);
@@ -44,7 +44,7 @@ class LanguageService extends ChangeNotifier {
 
   // Adaptive Language Logic REMOVED for strict locking
   // Future<void> checkAndAdaptLanguage(String text) async { ... }
-  
+
   @override
   void dispose() {
     _languageIdentifier.close();
